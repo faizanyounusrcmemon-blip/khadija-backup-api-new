@@ -1,5 +1,5 @@
 // ===============================================
-// 1) ARCHIVE PREVIEW API (OPTIMIZED VERSION)
+// 1) ARCHIVE PREVIEW API (STABLE VERSION)
 // ===============================================
 app.post("/api/archive-preview", async (req, res) => {
   try {
@@ -9,9 +9,7 @@ app.post("/api/archive-preview", async (req, res) => {
       return res.json({ success: false, error: "Missing dates" });
     }
 
-    // ------------------------------------------------
-    // 1) ITEMS: barcode → item_code, item_name
-    // ------------------------------------------------
+    // 1) ITEMS  (barcode → item_code, item_name)
     const { data: items, error: itemsErr } = await supabase
       .from("items")
       .select("id, item_code, item_name, barcode");
@@ -20,20 +18,19 @@ app.post("/api/archive-preview", async (req, res) => {
       return res.json({ success: false, error: itemsErr.message });
     }
 
-    // Create barcode lookup map
+    // barcode map بنا لو
     const barcodeMap = new Map();
     (items || []).forEach((it) => {
       if (!it.barcode) return;
-      const code = it.item_code || it.id;
+
+      const code = it.item_code || it.id; // اگر item_code خالی ہو تو id
       barcodeMap.set(String(it.barcode), {
         item_code: String(code),
         item_name: it.item_name || "",
       });
     });
 
-    // ------------------------------------------------
     // 2) PURCHASES
-    // ------------------------------------------------
     const { data: pur, error: purErr } = await supabase
       .from("purchases")
       .select("item_code, item_name, qty, purchase_date, is_deleted")
@@ -45,9 +42,7 @@ app.post("/api/archive-preview", async (req, res) => {
       return res.json({ success: false, error: purErr.message });
     }
 
-    // ------------------------------------------------
     // 3) SALES
-    // ------------------------------------------------
     const { data: sal, error: salErr } = await supabase
       .from("sales")
       .select("item_code, item_name, qty, sale_date, is_deleted")
@@ -59,22 +54,18 @@ app.post("/api/archive-preview", async (req, res) => {
       return res.json({ success: false, error: salErr.message });
     }
 
-    // ------------------------------------------------
-    // 4) SALE RETURNS (barcode → item_code)
-    // ------------------------------------------------
+    // 4) SALE RETURNS  (barcode سے item_code resolve ہوگا)
     const { data: ret, error: retErr } = await supabase
       .from("sale_returns")
       .select("barcode, return_qty, created_at")
       .gte("created_at", start_date)
-      .lte("created_at", end_date + "T23:59:59");
+      .lte("created_at", end_date + "T23:59:59"); // پورا دن cover
 
     if (retErr) {
       return res.json({ success: false, error: retErr.message });
     }
 
-    // ------------------------------------------------
     // 5) SUMMARY MAP
-    // ------------------------------------------------
     const map = new Map();
 
     function ensure(code, name) {
@@ -105,15 +96,14 @@ app.post("/api/archive-preview", async (req, res) => {
     // Sale Returns
     (ret || []).forEach((r) => {
       const info = barcodeMap.get(String(r.barcode));
-      if (!info) return; // skip unknown items
+      if (!info) return; // unknown barcode skip
 
       const row = ensure(info.item_code, info.item_name);
       row.return_qty += Number(r.return_qty || 0);
     });
 
-    // Final sorted rows
     const rows = Array.from(map.values()).sort((a, b) =>
-      a.item_code.localeCompare(b.item_code)
+      String(a.item_code).localeCompare(String(b.item_code))
     );
 
     return res.json({ success: true, rows });
